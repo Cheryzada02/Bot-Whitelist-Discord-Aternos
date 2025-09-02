@@ -7,3 +7,12 @@ config.js
 
 # Logs
 *.log
+
+# Archivos de whitelist (si no quieres subirlos)
+whitelist.json
+
+# Dependencias opcionales
+package-lock.json
+
+# Cachés
+.DS_Store

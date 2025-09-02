@@ -50,6 +50,9 @@ client.on("error", (err) => enviarLog(`❌ Error: ${err.message}`, Discord.Color
 client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Yellow));
 process.on("unhandledRejection", (reason) => enviarLog(`❌ Unhandled Rejection: ${reason}`, Discord.Colors.Red));
 
+// Evitamos interacciones duplicadas
+const pendingRequests = new Set();
+
 // Conexión al bot
 client.once("ready", () => {
   console.log(`Bot listo: ${client.user.tag}`);
@@ -63,6 +66,7 @@ client.once("ready", () => {
       .catch((err) => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
   }, 5 * 60 * 1000);
 
+  // Enviar botón solo una vez
   enviarBotonVerificacion();
 });
 
@@ -84,9 +88,6 @@ async function enviarBotonVerificacion() {
   }).catch(console.error);
 }
 
-// Evitamos interacciones duplicadas
-const pendingRequests = new Set();
-
 // Interacciones
 client.on("interactionCreate", async (interaction) => {
   try {
@@ -96,7 +97,6 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "Ya tienes una solicitud pendiente.", ephemeral: true });
         return;
       }
-
       pendingRequests.add(interaction.user.id);
 
       const modal = new Discord.ModalBuilder()
