@@ -66,7 +66,6 @@ client.once("ready", () => {
       .catch((err) => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
   }, 5 * 60 * 1000);
 
-  // Enviar botón solo una vez
   enviarBotonVerificacion();
 });
 
@@ -113,6 +112,7 @@ client.on("interactionCreate", async (interaction) => {
       modal.addComponents(fila);
 
       await interaction.showModal(modal);
+      return;
     }
 
     // Usuario envía modal
@@ -141,6 +141,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
       enviarLog(`Solicitud de whitelist enviada por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Blurple);
+      return;
     }
 
     // Staff aprueba o rechaza
@@ -153,6 +154,12 @@ client.on("interactionCreate", async (interaction) => {
       const member = await guild.members.fetch(userId);
       if (!member) return interaction.reply({ content: "Usuario no encontrado.", ephemeral: true });
 
+      // Bloquea para que solo se ejecute una vez
+      if (!pendingRequests.has(userId)) {
+        return interaction.reply({ content: "Esta solicitud ya fue procesada.", ephemeral: true });
+      }
+      pendingRequests.delete(userId);
+
       if (interaction.customId.startsWith("aceptar_")) {
         await member.roles.add(ROL_VERIFICADO);
 
@@ -161,15 +168,14 @@ client.on("interactionCreate", async (interaction) => {
         fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
 
         await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
-        interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
-        pendingRequests.delete(userId);
+        await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
         enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Green);
       } else {
         await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
-        interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
-        pendingRequests.delete(userId);
+        await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
         enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Red);
       }
+      return;
     }
 
   } catch (err) {
