@@ -1,7 +1,7 @@
 import Discord from "discord.js";
 import 'dotenv/config';
 import fs from "fs";
-import fetch from "node-fetch";
+import { fetch } from "undici";
 import path from "path";
 
 // Cliente Discord
