@@ -30,34 +30,47 @@ if (!fs.existsSync(WHITELIST_PATH)) {
   fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
 }
 
+// Función para enviar logs con embed
+async function enviarLog(titulo, descripcion, color = 0x00FF00) {
+  const canal = await client.channels.fetch(CANAL_LOGS).catch(() => null);
+  if (!canal) return console.log("Canal de logs no encontrado");
+
+  const embed = new Discord.EmbedBuilder()
+    .setTitle(titulo)
+    .setDescription(descripcion)
+    .setColor(color)
+    .setTimestamp();
+
+  canal.send({ embeds: [embed] }).catch(console.error);
+}
+
 // Manejo de errores global
-client.on("error", console.error);
-client.on("warn", console.warn);
-process.on("unhandledRejection", console.error);
+client.on("error", error => enviarLog("Error del Bot ❌", `\`\`\`${error}\`\`\``, 0xFF0000));
+client.on("warn", warn => enviarLog("Advertencia ⚠️", `\`\`\`${warn}\`\`\``, 0xFFFF00));
+process.on("unhandledRejection", err => enviarLog("Error inesperado ❌", `\`\`\`${err}\`\`\``, 0xFF0000));
+process.on("exit", code => enviarLog("Bot detenido ⚠️", `Se apagó con código ${code}`, 0xFFFF00));
+process.on("SIGINT", () => {
+  enviarLog("Bot detenido ⚠️", "El bot se apagó (Ctrl+C)", 0xFFFF00);
+  process.exit();
+});
 
 // Conexión al bot
 client.once("ready", () => {
   console.log(`Bot listo: ${client.user.tag}`);
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
-  enviarLog("Bot iniciado y listo ✅");
+  enviarLog("Bot iniciado ✅", `El bot **${client.user.tag}** se ha iniciado correctamente`);
 
   // Autoping cada 5 minutos
   setInterval(() => {
     if (process.env.RENDER_URL) {
       fetch(process.env.RENDER_URL)
-        .then(() => console.log("Ping enviado para mantener bot activo"))
-        .catch(console.error);
+        .then(() => enviarLog("Autoping ⏱️", "Ping enviado para mantener el bot activo"))
+        .catch(err => enviarLog("Error Autoping ❌", `\`\`\`${err}\`\`\``, 0xFF0000));
     }
   }, 5 * 60 * 1000);
 
   enviarBotonVerificacion();
 });
-
-// Función para enviar logs
-function enviarLog(mensaje) {
-  const canal = client.channels.cache.get(CANAL_LOGS);
-  if (canal) canal.send(mensaje).catch(console.error);
-}
 
 // Enviar mensaje con botón de verificación
 async function enviarBotonVerificacion() {
@@ -124,7 +137,7 @@ client.on("interactionCreate", async (interaction) => {
     });
 
     await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
-    enviarLog(`Solicitud de whitelist enviada por ${interaction.user.tag} (Minecraft: ${username})`);
+    enviarLog("Solicitud enviada 📝", `Solicitud de whitelist enviada por **${interaction.user.tag}** (Minecraft: ${username})`);
   }
 
   // Staff aprueba o rechaza
@@ -136,20 +149,19 @@ client.on("interactionCreate", async (interaction) => {
     const member = await guild.members.fetch(userId);
 
     if (interaction.customId.startsWith("aceptar_")) {
-      // Agregar rol
       await member.roles.add(ROL_VERIFICADO);
-      // Guardar en whitelist.json
+
       const whitelist = JSON.parse(fs.readFileSync(WHITELIST_PATH));
       if (!whitelist.includes(username)) whitelist.push(username);
       fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
-      // Mensaje privado
+
       await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
       interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
-      enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`);
+      enviarLog("Solicitud aceptada ✅", `${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`);
     } else {
       await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
       interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
-      enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`);
+      enviarLog("Solicitud rechazada ❌", `${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, 0xFF0000);
     }
   }
 });
