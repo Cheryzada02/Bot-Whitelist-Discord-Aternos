@@ -31,41 +31,37 @@ if (!fs.existsSync(WHITELIST_PATH)) {
 }
 
 // Función para enviar logs con embed
-async function enviarLog(titulo, descripcion, color = 0x00FF00) {
-  const canal = await client.channels.fetch(CANAL_LOGS).catch(() => null);
-  if (!canal) return console.log("Canal de logs no encontrado");
+function enviarLog(mensaje, tipo = "info") {
+  const canal = client.channels.cache.get(CANAL_LOGS);
+  if (!canal) return;
 
   const embed = new Discord.EmbedBuilder()
-    .setTitle(titulo)
-    .setDescription(descripcion)
-    .setColor(color)
+    .setTitle("Registro de Whitelist")
+    .setDescription(mensaje)
+    .setColor(tipo === "error" ? 0xFF0000 : tipo === "warn" ? 0xFFA500 : 0x00FF00)
     .setTimestamp();
 
   canal.send({ embeds: [embed] }).catch(console.error);
 }
 
 // Manejo de errores global
-client.on("error", error => enviarLog("Error del Bot ❌", `\`\`\`${error}\`\`\``, 0xFF0000));
-client.on("warn", warn => enviarLog("Advertencia ⚠️", `\`\`\`${warn}\`\`\``, 0xFFFF00));
-process.on("unhandledRejection", err => enviarLog("Error inesperado ❌", `\`\`\`${err}\`\`\``, 0xFF0000));
-process.on("exit", code => enviarLog("Bot detenido ⚠️", `Se apagó con código ${code}`, 0xFFFF00));
-process.on("SIGINT", () => {
-  enviarLog("Bot detenido ⚠️", "El bot se apagó (Ctrl+C)", 0xFFFF00);
-  process.exit();
-});
+client.on("error", err => enviarLog(`Error: ${err.message}`, "error"));
+client.on("warn", warn => enviarLog(`Advertencia: ${warn}`, "warn"));
+process.on("unhandledRejection", err => enviarLog(`Unhandled Rejection: ${err}`, "error"));
 
 // Conexión al bot
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(`Bot listo: ${client.user.tag}`);
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
-  enviarLog("Bot iniciado ✅", `El bot **${client.user.tag}** se ha iniciado correctamente`);
+
+  enviarLog("Bot iniciado y listo ✅");
 
   // Autoping cada 5 minutos
   setInterval(() => {
     if (process.env.RENDER_URL) {
       fetch(process.env.RENDER_URL)
-        .then(() => enviarLog("Autoping ⏱️", "Ping enviado para mantener el bot activo"))
-        .catch(err => enviarLog("Error Autoping ❌", `\`\`\`${err}\`\`\``, 0xFF0000));
+        .then(() => enviarLog("Ping enviado para mantener bot activo"))
+        .catch(err => enviarLog(`Error al hacer ping: ${err}`, "error"));
     }
   }, 5 * 60 * 1000);
 
@@ -75,7 +71,7 @@ client.once("ready", () => {
 // Enviar mensaje con botón de verificación
 async function enviarBotonVerificacion() {
   const canal = await client.channels.fetch(CANAL_USUARIOS);
-  if (!canal) return console.log("Canal de usuarios no encontrado");
+  if (!canal) return enviarLog("Canal de usuarios no encontrado", "error");
 
   const boton = new Discord.ButtonBuilder()
     .setCustomId("verify_button")
@@ -95,7 +91,6 @@ client.on("interactionCreate", async (interaction) => {
 
   // Usuario pulsa botón de verificación
   if (interaction.isButton() && interaction.customId === "verify_button") {
-
     const modal = new Discord.ModalBuilder()
       .setCustomId(`modal_${interaction.user.id}`)
       .setTitle("Solicitud Whitelist");
@@ -110,6 +105,7 @@ client.on("interactionCreate", async (interaction) => {
     modal.addComponents(fila);
 
     await interaction.showModal(modal);
+    return;
   }
 
   // Usuario envía modal
@@ -117,7 +113,7 @@ client.on("interactionCreate", async (interaction) => {
     const username = interaction.fields.getTextInputValue("minecraft_username");
 
     const staffCanal = await client.channels.fetch(CANAL_STAFF);
-    if (!staffCanal) return console.log("Canal de staff no encontrado");
+    if (!staffCanal) return enviarLog("Canal de staff no encontrado", "error");
 
     const aceptarBtn = new Discord.ButtonBuilder()
       .setCustomId(`aceptar_${interaction.user.id}_${username}`)
@@ -132,12 +128,13 @@ client.on("interactionCreate", async (interaction) => {
     const fila = new Discord.ActionRowBuilder().addComponents(aceptarBtn, rechazarBtn);
 
     await staffCanal.send({
-      content: `Solicitud de whitelist de ${interaction.user.tag} (Minecraft: ${username})`,
+      content: `Solicitud de whitelist de **${interaction.user.tag}** (Minecraft: **${username}**)`,
       components: [fila]
     });
 
     await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
-    enviarLog("Solicitud enviada 📝", `Solicitud de whitelist enviada por **${interaction.user.tag}** (Minecraft: ${username})`);
+    enviarLog(`Solicitud enviada por ${interaction.user.tag} (Minecraft: ${username})`);
+    return;
   }
 
   // Staff aprueba o rechaza
@@ -151,17 +148,19 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.customId.startsWith("aceptar_")) {
       await member.roles.add(ROL_VERIFICADO);
 
+      // Guardar en whitelist.json
       const whitelist = JSON.parse(fs.readFileSync(WHITELIST_PATH));
       if (!whitelist.includes(username)) whitelist.push(username);
       fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
 
       await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
-      interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
-      enviarLog("Solicitud aceptada ✅", `${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`);
+
+      await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
+      enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`);
     } else {
       await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
-      interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
-      enviarLog("Solicitud rechazada ❌", `${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, 0xFF0000);
+      await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
+      enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`);
     }
   }
 });
