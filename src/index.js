@@ -33,7 +33,7 @@ client.once('ready', () => {
 
     // Autoping cada 5 minutos para evitar que Render apague el bot
     setInterval(() => {
-        fetch('https://your-app-name.onrender.com')
+        fetch('https://bot-whitelist-discord-aternos.onrender.com')
             .then(() => log('Ping enviado para mantener bot activo'))
             .catch(console.error);
     }, 5 * 60 * 1000); // 5 minutos
