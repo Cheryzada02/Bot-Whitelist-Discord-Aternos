@@ -1,15 +1,30 @@
 {
-  "name": "bot-whitelist",
+  "name": "bot-minecraft-whitelist",
   "version": "1.0.0",
-  "description": "Discord bot para whitelist de Minecraft en Aternos",
+  "description": "Bot de Discord para gestionar whitelist de Minecraft con logs y autoping",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
+  "keywords": [
+    "discord",
+    "bot",
+    "minecraft",
+    "whitelist"
+  ],
+  "author": "TuNombre",
+  "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.15.0",
-    "dotenv": "^17.2.1",
-    "node-fetch": "^3.3.2"
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.3.1",
+    "node-fetch": "^3.4.0"
   },
-  "type": "module"
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

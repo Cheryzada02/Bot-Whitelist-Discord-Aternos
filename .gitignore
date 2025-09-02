@@ -3,16 +3,9 @@ node_modules/
 
 # Environment variables
 .env
-config.js
 
 # Logs
 *.log
 
-# Archivos de whitelist (si no quieres subirlos)
+# Whitelist local (opcional)
 whitelist.json
-
-# Dependencias opcionales
-package-lock.json
-
-# Cachés
-.DS_Store

@@ -4,6 +4,7 @@ import fs from "fs";
 import fetch from "node-fetch";
 import path from "path";
 
+// Cliente Discord
 const client = new Discord.Client({
   intents: [
     Discord.GatewayIntentBits.Guilds,
@@ -13,89 +14,80 @@ const client = new Discord.Client({
   ]
 });
 
-// Variables desde .env
-const TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
-const CANAL_USUARIOS = process.env.CANAL_USUARIOS;
-const CANAL_STAFF = process.env.CANAL_STAFF;
-const ROL_VERIFICADO = process.env.ROL_VERIFICADO;
-const CANAL_LOGS = process.env.CANAL_LOGS;
-const IP_SERVIDOR = process.env.IP_SERVIDOR;
-const AUTOPING_URL = "https://bot-whitelist-discord-aternos.onrender.com";
+// Variables de entorno
+const {
+  DISCORD_TOKEN, CLIENT_ID, GUILD_ID, CANAL_USUARIOS, CANAL_STAFF,
+  ROL_VERIFICADO, ROL_STAFF, CANAL_LOGS, IP_SERVIDOR, AUTOPING_URL
+} = process.env;
 
-// Ruta para el whitelist.json
+// Ruta whitelist
 const WHITELIST_PATH = path.join(process.cwd(), "whitelist.json");
+if (!fs.existsSync(WHITELIST_PATH)) fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
 
-// Crear whitelist.json si no existe
-if (!fs.existsSync(WHITELIST_PATH)) {
-  fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
-}
-
-// Función para enviar logs en embed
+// Logs embed
 function enviarLog(mensaje, color = Discord.Colors.Blue) {
   const canal = client.channels.cache.get(CANAL_LOGS);
   if (!canal) return;
-
   const embed = new Discord.EmbedBuilder()
     .setColor(color)
     .setTitle("Log del Bot")
     .setDescription(mensaje)
     .setTimestamp();
-
   canal.send({ embeds: [embed] }).catch(console.error);
 }
 
-// Manejo de errores global
-client.on("error", (err) => enviarLog(`❌ Error: ${err.message}`, Discord.Colors.Red));
-client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Yellow));
-process.on("unhandledRejection", (reason) => enviarLog(`❌ Unhandled Rejection: ${reason}`, Discord.Colors.Red));
+// Manejo de errores
+client.on("error", err => enviarLog(`❌ Error: ${err.message}`, Discord.Colors.Red));
+client.on("warn", warn => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Yellow));
+process.on("unhandledRejection", reason => enviarLog(`❌ Unhandled Rejection: ${reason}`, Discord.Colors.Red));
 
-// Evitamos interacciones duplicadas
+// Evitar solicitudes duplicadas
 const pendingRequests = new Set();
 
-// Conexión al bot
-client.once("ready", () => {
+// Bot listo
+client.once("ready", async () => {
   console.log(`Bot listo: ${client.user.tag}`);
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
   enviarLog("✅ Bot iniciado y listo", Discord.Colors.Green);
 
-  // Autoping cada 5 minutos
+  // Autoping
   setInterval(() => {
     fetch(AUTOPING_URL)
       .then(() => enviarLog("⏱️ Ping enviado para mantener bot activo", Discord.Colors.Blurple))
-      .catch((err) => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
+      .catch(err => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
   }, 5 * 60 * 1000);
 
   enviarBotonVerificacion();
 });
 
-// Enviar mensaje con botón de verificación
+// Botón de verificación
 async function enviarBotonVerificacion() {
   const canal = await client.channels.fetch(CANAL_USUARIOS).catch(console.error);
-  if (!canal) return console.log("Canal de usuarios no encontrado");
+  if (!canal) return;
 
   const boton = new Discord.ButtonBuilder()
     .setCustomId("verify_button")
-    .setLabel("Iniciar whitelist")
+    .setLabel("Solicitar Whitelist")
     .setStyle(Discord.ButtonStyle.Primary);
 
   const fila = new Discord.ActionRowBuilder().addComponents(boton);
 
   canal.send({
-    content: "Pulsa el botón para solicitar la whitelist:",
+    content: "Pulsa el botón para solicitar whitelist:",
     components: [fila]
   }).catch(console.error);
 }
 
 // Interacciones
-client.on("interactionCreate", async (interaction) => {
+client.on("interactionCreate", async interaction => {
   try {
-    // Usuario pulsa botón de verificación
+    // Botón de solicitud
     if (interaction.isButton() && interaction.customId === "verify_button") {
       if (pendingRequests.has(interaction.user.id)) {
         await interaction.reply({ content: "Ya tienes una solicitud pendiente.", ephemeral: true });
         return;
       }
+
       pendingRequests.add(interaction.user.id);
 
       const modal = new Discord.ModalBuilder()
@@ -108,19 +100,15 @@ client.on("interactionCreate", async (interaction) => {
         .setStyle(Discord.TextInputStyle.Short)
         .setRequired(true);
 
-      const fila = new Discord.ActionRowBuilder().addComponents(input);
-      modal.addComponents(fila);
-
+      modal.addComponents(new Discord.ActionRowBuilder().addComponents(input));
       await interaction.showModal(modal);
-      return;
     }
 
-    // Usuario envía modal
+    // Modal enviado
     if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_")) {
       const username = interaction.fields.getTextInputValue("minecraft_username");
-
       const staffCanal = await client.channels.fetch(CANAL_STAFF);
-      if (!staffCanal) return console.log("Canal de staff no encontrado");
+      if (!staffCanal) return;
 
       const aceptarBtn = new Discord.ButtonBuilder()
         .setCustomId(`aceptar_${interaction.user.id}_${username}`)
@@ -141,48 +129,48 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
       enviarLog(`Solicitud de whitelist enviada por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Blurple);
-      return;
     }
 
-    // Staff aprueba o rechaza
+    // Aceptar o rechazar (solo staff)
     if (interaction.isButton() && (interaction.customId.startsWith("aceptar_") || interaction.customId.startsWith("rechazar_"))) {
+      const staffMember = interaction.member;
+      if (!staffMember.roles.cache.has(ROL_STAFF)) {
+        if (!interaction.replied)
+          await interaction.reply({ content: "❌ No tienes permisos para realizar esta acción.", ephemeral: true });
+        return;
+      }
+
       const parts = interaction.customId.split("_");
       const userId = parts[1];
       const username = parts.slice(2).join("_");
 
       const guild = await client.guilds.fetch(GUILD_ID);
       const member = await guild.members.fetch(userId);
-      if (!member) return interaction.reply({ content: "Usuario no encontrado.", ephemeral: true });
-
-      // Bloquea para que solo se ejecute una vez
-      if (!pendingRequests.has(userId)) {
-        return interaction.reply({ content: "Esta solicitud ya fue procesada.", ephemeral: true });
-      }
-      pendingRequests.delete(userId);
+      if (!member) return;
 
       if (interaction.customId.startsWith("aceptar_")) {
         await member.roles.add(ROL_VERIFICADO);
-
         const whitelist = JSON.parse(fs.readFileSync(WHITELIST_PATH));
         if (!whitelist.includes(username)) whitelist.push(username);
         fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
 
         await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
         await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
-        enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Green);
+        pendingRequests.delete(userId);
+        enviarLog(`${member.user.tag} aceptado por ${staffMember.user.tag} (Minecraft: ${username})`, Discord.Colors.Green);
+
       } else {
         await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
         await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
-        enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Red);
+        pendingRequests.delete(userId);
+        enviarLog(`${member.user.tag} rechazado por ${staffMember.user.tag} (Minecraft: ${username})`, Discord.Colors.Red);
       }
-      return;
     }
 
   } catch (err) {
     console.error(err);
-    if (interaction.deferred || interaction.replied) return;
-    await interaction.reply({ content: "❌ Ocurrió un error.", ephemeral: true });
+    if (!interaction.replied) await interaction.reply({ content: "❌ Ocurrió un error.", ephemeral: true });
   }
 });
 
-client.login(TOKEN);
+client.login(DISCORD_TOKEN);
