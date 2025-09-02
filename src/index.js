@@ -21,14 +21,11 @@ const CANAL_STAFF = process.env.CANAL_STAFF;
 const ROL_VERIFICADO = process.env.ROL_VERIFICADO;
 const CANAL_LOGS = process.env.CANAL_LOGS;
 const IP_SERVIDOR = process.env.IP_SERVIDOR;
+const AUTOPING_URL = "https://bot-whitelist-discord-aternos.onrender.com";
 
 // Ruta para el whitelist.json
 const WHITELIST_PATH = path.join(process.cwd(), "whitelist.json");
-
-// Crear whitelist.json si no existe
-if (!fs.existsSync(WHITELIST_PATH)) {
-  fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
-}
+if (!fs.existsSync(WHITELIST_PATH)) fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
 
 // Función para enviar logs en embed
 function enviarLog(mensaje, color = Discord.Colors.Blue) {
@@ -44,7 +41,7 @@ function enviarLog(mensaje, color = Discord.Colors.Blue) {
 
 // Manejo de errores global
 client.on("error", (err) => enviarLog(`❌ Error: ${err.message}`, Discord.Colors.Red));
-client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Orange));
+client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Yellow));
 process.on("unhandledRejection", (reason) => enviarLog(`❌ Unhandled Rejection: ${reason}`, Discord.Colors.Red));
 
 // Conexión al bot
@@ -53,24 +50,18 @@ client.once("ready", () => {
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
   enviarLog("✅ Bot iniciado y listo", Discord.Colors.Green);
 
-  // Autoping cada 5 minutos a la URL de Render
-  setInterval(async () => {
-    try {
-      const response = await fetch("https://bot-whitelist-discord-aternos.onrender.com");
-      if (response.ok) {
-        enviarLog("⏱️ Ping enviado para mantener bot activo", Discord.Colors.Blurple);
-      } else {
-        enviarLog(`⚠️ Ping fallido: ${response.status}`, Discord.Colors.Orange);
-      }
-    } catch (err) {
-      enviarLog(`❌ Error al enviar ping: ${err.message}`, Discord.Colors.Red);
-    }
+  // Autoping cada 5 minutos
+  setInterval(() => {
+    fetch(AUTOPING_URL)
+      .then(() => enviarLog("⏱️ Ping enviado para mantener bot activo", Discord.Colors.Blurple))
+      .catch((err) => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
   }, 5 * 60 * 1000);
 
+  // Enviar botón de verificación solo una vez al iniciar
   enviarBotonVerificacion();
 });
 
-// Enviar mensaje con botón de verificación
+// Función para enviar mensaje con botón de verificación
 async function enviarBotonVerificacion() {
   const canal = await client.channels.fetch(CANAL_USUARIOS).catch(console.error);
   if (!canal) return console.log("Canal de usuarios no encontrado");
@@ -90,7 +81,8 @@ async function enviarBotonVerificacion() {
 
 // Interacciones
 client.on("interactionCreate", async (interaction) => {
-  // Usuario pulsa botón de verificación
+
+  // Botón de verificación
   if (interaction.isButton() && interaction.customId === "verify_button") {
     const modal = new Discord.ModalBuilder()
       .setCustomId(`modal_${interaction.user.id}`)
@@ -102,16 +94,18 @@ client.on("interactionCreate", async (interaction) => {
       .setStyle(Discord.TextInputStyle.Short)
       .setRequired(true);
 
-    const fila = new Discord.ActionRowBuilder().addComponents(input);
-    modal.addComponents(fila);
+    modal.addComponents(new Discord.ActionRowBuilder().addComponents(input));
+
     await interaction.showModal(modal);
+    return;
   }
 
-  // Usuario envía modal
+  // Modal submit
   if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_")) {
     const username = interaction.fields.getTextInputValue("minecraft_username");
-    const staffCanal = await client.channels.fetch(CANAL_STAFF).catch(console.error);
-    if (!staffCanal) return;
+
+    const staffCanal = await client.channels.fetch(CANAL_STAFF);
+    if (!staffCanal) return console.log("Canal de staff no encontrado");
 
     const aceptarBtn = new Discord.ButtonBuilder()
       .setCustomId(`aceptar_${interaction.user.id}_${username}`)
@@ -132,6 +126,7 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
     enviarLog(`Solicitud de whitelist enviada por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Blurple);
+    return;
   }
 
   // Staff aprueba o rechaza
@@ -150,14 +145,15 @@ client.on("interactionCreate", async (interaction) => {
       if (!whitelist.includes(username)) whitelist.push(username);
       fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
 
+      await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
       await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
-      interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
       enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Green);
     } else {
+      await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
       await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
-      interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
       enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, Discord.Colors.Red);
     }
+    return;
   }
 });
 
