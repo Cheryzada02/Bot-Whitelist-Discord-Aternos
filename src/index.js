@@ -30,48 +30,46 @@ if (!fs.existsSync(WHITELIST_PATH)) {
   fs.writeFileSync(WHITELIST_PATH, JSON.stringify([]));
 }
 
-// Función para enviar logs con embed
-function enviarLog(mensaje, tipo = "info") {
-  const canal = client.channels.cache.get(CANAL_LOGS);
-  if (!canal) return;
-
-  const embed = new Discord.EmbedBuilder()
-    .setTitle("Registro de Whitelist")
-    .setDescription(mensaje)
-    .setColor(tipo === "error" ? 0xFF0000 : tipo === "warn" ? 0xFFA500 : 0x00FF00)
-    .setTimestamp();
-
-  canal.send({ embeds: [embed] }).catch(console.error);
-}
-
 // Manejo de errores global
-client.on("error", err => enviarLog(`Error: ${err.message}`, "error"));
-client.on("warn", warn => enviarLog(`Advertencia: ${warn}`, "warn"));
-process.on("unhandledRejection", err => enviarLog(`Unhandled Rejection: ${err}`, "error"));
+client.on("error", (error) => enviarLog(`❌ Error: ${error.message}`, "RED"));
+client.on("warn", (warn) => enviarLog(`⚠️ Advertencia: ${warn}`, "ORANGE"));
+process.on("unhandledRejection", (reason) => enviarLog(`❌ Rechazo no manejado: ${reason}`, "RED"));
 
 // Conexión al bot
 client.once("ready", async () => {
   console.log(`Bot listo: ${client.user.tag}`);
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
-
-  enviarLog("Bot iniciado y listo ✅");
+  enviarLog("Bot iniciado y listo ✅", "GREEN");
 
   // Autoping cada 5 minutos
   setInterval(() => {
     if (process.env.RENDER_URL) {
       fetch(process.env.RENDER_URL)
-        .then(() => enviarLog("Ping enviado para mantener bot activo"))
-        .catch(err => enviarLog(`Error al hacer ping: ${err}`, "error"));
+        .then(() => enviarLog("Ping enviado para mantener bot activo ⏱", "BLUE"))
+        .catch(console.error);
     }
   }, 5 * 60 * 1000);
 
   enviarBotonVerificacion();
 });
 
+// Función para enviar logs con embed
+function enviarLog(mensaje, color = "BLUE") {
+  const canal = client.channels.cache.get(CANAL_LOGS);
+  if (!canal) return;
+
+  const embed = new Discord.EmbedBuilder()
+    .setColor(color)
+    .setDescription(mensaje)
+    .setTimestamp();
+
+  canal.send({ embeds: [embed] }).catch(console.error);
+}
+
 // Enviar mensaje con botón de verificación
 async function enviarBotonVerificacion() {
   const canal = await client.channels.fetch(CANAL_USUARIOS);
-  if (!canal) return enviarLog("Canal de usuarios no encontrado", "error");
+  if (!canal) return console.log("Canal de usuarios no encontrado");
 
   const boton = new Discord.ButtonBuilder()
     .setCustomId("verify_button")
@@ -87,10 +85,13 @@ async function enviarBotonVerificacion() {
 }
 
 // Interacciones
+const solicitudesPendientes = new Map(); // Evitar duplicados
+
 client.on("interactionCreate", async (interaction) => {
 
   // Usuario pulsa botón de verificación
   if (interaction.isButton() && interaction.customId === "verify_button") {
+
     const modal = new Discord.ModalBuilder()
       .setCustomId(`modal_${interaction.user.id}`)
       .setTitle("Solicitud Whitelist");
@@ -105,15 +106,21 @@ client.on("interactionCreate", async (interaction) => {
     modal.addComponents(fila);
 
     await interaction.showModal(modal);
-    return;
   }
 
   // Usuario envía modal
   if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_")) {
     const username = interaction.fields.getTextInputValue("minecraft_username");
 
+    if (solicitudesPendientes.has(interaction.user.id)) {
+      await interaction.reply({ content: "⚠️ Ya tienes una solicitud pendiente.", ephemeral: true });
+      return;
+    }
+
+    solicitudesPendientes.set(interaction.user.id, username);
+
     const staffCanal = await client.channels.fetch(CANAL_STAFF);
-    if (!staffCanal) return enviarLog("Canal de staff no encontrado", "error");
+    if (!staffCanal) return console.log("Canal de staff no encontrado");
 
     const aceptarBtn = new Discord.ButtonBuilder()
       .setCustomId(`aceptar_${interaction.user.id}_${username}`)
@@ -127,14 +134,16 @@ client.on("interactionCreate", async (interaction) => {
 
     const fila = new Discord.ActionRowBuilder().addComponents(aceptarBtn, rechazarBtn);
 
-    await staffCanal.send({
-      content: `Solicitud de whitelist de **${interaction.user.tag}** (Minecraft: **${username}**)`,
-      components: [fila]
-    });
+    const embed = new Discord.EmbedBuilder()
+      .setTitle("Nueva solicitud de whitelist")
+      .setDescription(`Usuario: ${interaction.user.tag}\nMinecraft: ${username}`)
+      .setColor("YELLOW")
+      .setTimestamp();
+
+    await staffCanal.send({ embeds: [embed], components: [fila] });
 
     await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
-    enviarLog(`Solicitud enviada por ${interaction.user.tag} (Minecraft: ${username})`);
-    return;
+    enviarLog(`Solicitud enviada por ${interaction.user.tag} (Minecraft: ${username})`, "BLUE");
   }
 
   // Staff aprueba o rechaza
@@ -154,14 +163,16 @@ client.on("interactionCreate", async (interaction) => {
       fs.writeFileSync(WHITELIST_PATH, JSON.stringify(whitelist, null, 2));
 
       await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
+      interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
+      enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`, "GREEN");
 
-      await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
-      enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag} (Minecraft: ${username})`);
     } else {
       await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
-      await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
-      enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`);
+      interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
+      enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag} (Minecraft: ${username})`, "RED");
     }
+
+    solicitudesPendientes.delete(userId); // Limpiar solicitud pendiente
   }
 });
 
