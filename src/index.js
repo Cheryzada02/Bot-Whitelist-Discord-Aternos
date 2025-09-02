@@ -1,6 +1,7 @@
 import Discord from "discord.js";
 import 'dotenv/config';
 import fetch from "node-fetch";
+import fs from "fs";
 
 const client = new Discord.Client({
   intents: [
@@ -20,18 +21,30 @@ const ROL_VERIFICADO = process.env.ROL_VERIFICADO;
 const CANAL_LOGS = process.env.CANAL_LOGS;
 const IP_SERVIDOR = process.env.IP_SERVIDOR;
 
-// Conexión al bot
-client.once("ready", () => {
+// Cargar whitelist
+let whitelist = [];
+const whitelistPath = './src/data/whitelist.json';
+if (fs.existsSync(whitelistPath)) {
+  whitelist = JSON.parse(fs.readFileSync(whitelistPath, 'utf8'));
+}
+
+// Bot listo
+client.once("ready", async () => {
   console.log(`Bot listo: ${client.user.tag}`);
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
 
   enviarLog("Bot iniciado y listo ✅");
 
+  // Enviar botón de verificación al canal de usuarios
+  enviarBotonVerificacion();
+
   // Autoping cada 5 minutos
   setInterval(() => {
-    fetch(process.env.RENDER_URL)
-      .then(() => console.log("Ping enviado para mantener bot activo"))
-      .catch(console.error);
+    if (process.env.RENDER_URL) {
+      fetch(process.env.RENDER_URL)
+        .then(() => console.log("Ping enviado para mantener bot activo"))
+        .catch(console.error);
+    }
   }, 5 * 60 * 1000);
 });
 
@@ -59,32 +72,55 @@ async function enviarBotonVerificacion() {
   });
 }
 
-// Interacciones con botones
+// Interacciones con botones y modales
 client.on("interactionCreate", async (interaction) => {
 
   // Usuario pulsa botón de verificación
   if (interaction.isButton() && interaction.customId === "verify_button") {
+    // Mostrar modal para que escriba su nombre de Minecraft
+    const modal = new Discord.ModalBuilder()
+      .setCustomId("verifyModal")
+      .setTitle("Verificación Minecraft");
+
+    const mcNameInput = new Discord.TextInputBuilder()
+      .setCustomId("mcName")
+      .setLabel("Tu nombre de usuario en Minecraft")
+      .setStyle(Discord.TextInputStyle.Short)
+      .setRequired(true);
+
+    const row = new Discord.ActionRowBuilder().addComponents(mcNameInput);
+    modal.addComponents(row);
+
+    await interaction.showModal(modal);
+  }
+
+  // Modal submit
+  if (interaction.isModalSubmit() && interaction.customId === "verifyModal") {
+    const mcName = interaction.fields.getTextInputValue("mcName");
+
     const staffCanal = await client.channels.fetch(CANAL_STAFF);
     if (!staffCanal) return console.log("Canal de staff no encontrado");
 
-    // Crear botones de aprobación/rechazo
+    // Crear botones para aprobar/rechazar
     const aceptarBtn = new Discord.ButtonBuilder()
-      .setCustomId(`aceptar_${interaction.user.id}`)
+      .setCustomId(`aceptar_${interaction.user.id}_${mcName}`)
       .setLabel("Aceptar")
       .setStyle(Discord.ButtonStyle.Success);
 
     const rechazarBtn = new Discord.ButtonBuilder()
-      .setCustomId(`rechazar_${interaction.user.id}`)
+      .setCustomId(`rechazar_${interaction.user.id}_${mcName}`)
       .setLabel("Rechazar")
       .setStyle(Discord.ButtonStyle.Danger);
 
     const fila = new Discord.ActionRowBuilder().addComponents(aceptarBtn, rechazarBtn);
 
-    // Enviar mensaje al canal de staff
-    await staffCanal.send({
-      content: `Solicitud de whitelist de ${interaction.user.tag}`,
-      components: [fila]
-    });
+    // Embed para el staff
+    const embed = new Discord.EmbedBuilder()
+      .setTitle("Nueva solicitud de whitelist")
+      .setDescription(`Usuario: ${interaction.user.tag}\nMinecraft: ${mcName}`)
+      .setColor("Blue");
+
+    await staffCanal.send({ embeds: [embed], components: [fila] });
 
     await interaction.reply({ content: "✅ Tu solicitud ha sido enviada al staff.", ephemeral: true });
     enviarLog(`Solicitud de whitelist enviada por ${interaction.user.tag}`);
@@ -92,24 +128,29 @@ client.on("interactionCreate", async (interaction) => {
 
   // Staff pulsa botón de aceptar/rechazar
   if (interaction.isButton() && (interaction.customId.startsWith("aceptar_") || interaction.customId.startsWith("rechazar_"))) {
-    const userId = interaction.customId.split("_")[1];
+    const [action, userId, mcName] = interaction.customId.split("_");
     const guild = await client.guilds.fetch(GUILD_ID);
     const member = await guild.members.fetch(userId);
+    const logChannel = await client.channels.fetch(CANAL_LOGS);
 
-    if (interaction.customId.startsWith("aceptar_")) {
+    if (action === "aceptar") {
+      if (!whitelist.includes(mcName)) {
+        whitelist.push(mcName);
+        fs.writeFileSync(whitelistPath, JSON.stringify(whitelist, null, 2));
+      }
+
       await member.roles.add(ROL_VERIFICADO);
       await member.send(`✅ Tu solicitud fue aceptada. IP del servidor: ${IP_SERVIDOR}`);
-      interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
+      await interaction.update({ content: `✅ ${member.user.tag} ha sido verificado`, components: [] });
       enviarLog(`${member.user.tag} aceptado por ${interaction.user.tag}`);
+      if (logChannel) logChannel.send(`✅ ${member.user.tag} agregado a whitelist.`);
     } else {
       await member.send(`❌ Tu solicitud fue rechazada por el staff.`);
-      interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
+      await interaction.update({ content: `❌ ${member.user.tag} fue rechazado`, components: [] });
       enviarLog(`${member.user.tag} rechazado por ${interaction.user.tag}`);
+      if (logChannel) logChannel.send(`❌ ${member.user.tag} fue rechazado.`);
     }
   }
 });
-
-// Llamar la función para enviar el botón al iniciar
-client.on("ready", enviarBotonVerificacion);
 
 client.login(TOKEN);
