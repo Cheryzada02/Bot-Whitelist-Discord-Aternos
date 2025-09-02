@@ -34,19 +34,17 @@ if (!fs.existsSync(WHITELIST_PATH)) {
 function enviarLog(mensaje, color = Discord.Colors.Blue) {
   const canal = client.channels.cache.get(CANAL_LOGS);
   if (!canal) return;
-
   const embed = new Discord.EmbedBuilder()
     .setColor(color)
     .setTitle("Log del Bot")
     .setDescription(mensaje)
     .setTimestamp();
-
   canal.send({ embeds: [embed] }).catch(console.error);
 }
 
 // Manejo de errores global
 client.on("error", (err) => enviarLog(`❌ Error: ${err.message}`, Discord.Colors.Red));
-client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Yellow));
+client.on("warn", (warn) => enviarLog(`⚠️ Warn: ${warn}`, Discord.Colors.Orange));
 process.on("unhandledRejection", (reason) => enviarLog(`❌ Unhandled Rejection: ${reason}`, Discord.Colors.Red));
 
 // Conexión al bot
@@ -55,12 +53,17 @@ client.once("ready", () => {
   client.user.setActivity("Minecraft", { type: Discord.ActivityType.Playing });
   enviarLog("✅ Bot iniciado y listo", Discord.Colors.Green);
 
-  // Autoping cada 5 minutos
-  setInterval(() => {
-    if (process.env.RENDER_URL) {
-      fetch(process.env.RENDER_URL)
-        .then(() => enviarLog("⏱️ Ping enviado para mantener bot activo", Discord.Colors.Blurple))
-        .catch((err) => enviarLog(`❌ Error en ping: ${err.message}`, Discord.Colors.Red));
+  // Autoping cada 5 minutos a la URL de Render
+  setInterval(async () => {
+    try {
+      const response = await fetch("https://bot-whitelist-discord-aternos.onrender.com");
+      if (response.ok) {
+        enviarLog("⏱️ Ping enviado para mantener bot activo", Discord.Colors.Blurple);
+      } else {
+        enviarLog(`⚠️ Ping fallido: ${response.status}`, Discord.Colors.Orange);
+      }
+    } catch (err) {
+      enviarLog(`❌ Error al enviar ping: ${err.message}`, Discord.Colors.Red);
     }
   }, 5 * 60 * 1000);
 
@@ -87,10 +90,8 @@ async function enviarBotonVerificacion() {
 
 // Interacciones
 client.on("interactionCreate", async (interaction) => {
-
   // Usuario pulsa botón de verificación
   if (interaction.isButton() && interaction.customId === "verify_button") {
-
     const modal = new Discord.ModalBuilder()
       .setCustomId(`modal_${interaction.user.id}`)
       .setTitle("Solicitud Whitelist");
@@ -103,16 +104,14 @@ client.on("interactionCreate", async (interaction) => {
 
     const fila = new Discord.ActionRowBuilder().addComponents(input);
     modal.addComponents(fila);
-
     await interaction.showModal(modal);
   }
 
   // Usuario envía modal
   if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_")) {
     const username = interaction.fields.getTextInputValue("minecraft_username");
-
-    const staffCanal = await client.channels.fetch(CANAL_STAFF);
-    if (!staffCanal) return console.log("Canal de staff no encontrado");
+    const staffCanal = await client.channels.fetch(CANAL_STAFF).catch(console.error);
+    if (!staffCanal) return;
 
     const aceptarBtn = new Discord.ButtonBuilder()
       .setCustomId(`aceptar_${interaction.user.id}_${username}`)
