@@ -1,0 +1,14 @@
+{
+  "name": "bot-whitelist",
+  "version": "1.0.0",
+  "description": "Discord bot para whitelist de Minecraft en Aternos",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.0",
+    "node-fetch": "^3.3.2"
+  },
+  "type": "module"
+}
